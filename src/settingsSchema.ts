@@ -120,7 +120,7 @@ export const SETTINGS_LIMITS = {
   doubleClickDelay: { min: 20, max: 9999 },
   clickLimit: { min: 1, max: 10_000_000 },
   timeLimit: { min: 1 },
-  stopBoundary: { min: 0, max: 999 },
+  stopBoundary: { min: 0, max: 10000 },
   position: { min: 0 },
   durationHours: { min: 0, max: 999 },
   durationMinutes: { min: 0 },
