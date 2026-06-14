@@ -1,6 +1,7 @@
 # v3.7.1 - 13.06.2026 (d.m.y)
 ## New
 ## Fix
+- Removed text weight difference for light mode fixing issue [#139](https://github.com/Blur009/Blur-AutoClicker/issues/139)
 - Added font setting to the overlay to close issue [#138](https://github.com/Blur009/Blur-AutoClicker/issues/138)
 - Fixed hotkey self-triggering during auto-clicks by flagging synthetic input and filtering it out in hotkey detection.
 - Fixed stop reason repeating when switching between simple and advanced mode.
