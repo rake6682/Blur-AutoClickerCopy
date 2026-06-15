@@ -338,12 +338,10 @@ pub fn start_hotkey_listener(app: AppHandle) {
 }
 
 fn is_hotkey_binding_pressed_physical(binding: &HotkeyBinding, strict: bool) -> bool {
-    let ctrl_down = is_physical_vk_down(VK_LCONTROL as i32)
-        || is_physical_vk_down(VK_RCONTROL as i32);
-    let alt_down =
-        is_physical_vk_down(VK_LMENU as i32) || is_physical_vk_down(VK_RMENU as i32);
-    let shift_down = is_physical_vk_down(VK_LSHIFT as i32)
-        || is_physical_vk_down(VK_RSHIFT as i32);
+    let ctrl_down =
+        is_physical_vk_down(VK_LCONTROL as i32) || is_physical_vk_down(VK_RCONTROL as i32);
+    let alt_down = is_physical_vk_down(VK_LMENU as i32) || is_physical_vk_down(VK_RMENU as i32);
+    let shift_down = is_physical_vk_down(VK_LSHIFT as i32) || is_physical_vk_down(VK_RSHIFT as i32);
     let super_down = is_physical_vk_down(VK_LWIN as i32) || is_physical_vk_down(VK_RWIN as i32);
     if !modifiers_match(binding, ctrl_down, alt_down, shift_down, super_down, strict) {
         return false;
