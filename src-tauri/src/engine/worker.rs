@@ -72,6 +72,23 @@ fn calibrate_cycle_freq() -> f64 {
     }
 }
 
+struct TimerResolutionGuard;
+
+impl TimerResolutionGuard {
+    fn new() -> Self {
+        let mut current = 0u32;
+        unsafe { NtSetTimerResolution(10000, 1, &mut current) };
+        Self
+    }
+}
+
+impl Drop for TimerResolutionGuard {
+    fn drop(&mut self) {
+        let mut current = 0u32;
+        unsafe { NtSetTimerResolution(10000, 0, &mut current) };
+    }
+}
+
 #[derive(Clone)]
 pub struct RunControl {
     app: AppHandle,
@@ -430,310 +447,356 @@ fn plan_cycle_batch(
 
 // -- Engine loop --
 
-pub fn start_clicker(config: ClickerConfig, control: RunControl) -> RunOutcome {
-    CLICK_COUNT.store(0, Ordering::SeqCst);
+struct ClickerContext {
+    is_keyboard: bool,
+    down_flag: u32,
+    up_flag: u32,
+    batch_size: usize,
+    has_position: bool,
+    use_smoothing: bool,
+    single_plan: ClickCyclePlan,
+    double_plan: ClickCyclePlan,
+}
 
-    let mut current = 0u32;
-    unsafe { NtSetTimerResolution(10000, 1, &mut current) };
+impl ClickerContext {
+    fn new(config: &ClickerConfig) -> Self {
+        let is_keyboard = config.input_type == 1 && config.key_code > 0;
+        let (down_flag, up_flag) = if is_keyboard {
+            (0, 0)
+        } else {
+            get_button_flags(config.button)
+        };
+        let cps = if config.interval_secs > 0.0 {
+            1.0 / config.interval_secs
+        } else {
+            0.0
+        };
+        let batch_size = if !config.double_click_enabled && cps > 500.0 {
+            3
+        } else if !config.double_click_enabled && cps >= 50.0 {
+            2
+        } else {
+            1
+        };
+        let duty = if cps > 500.0 {
+            config.duty.min(1.0)
+        } else if cps >= 200.0 {
+            config.duty.min(30.0)
+        } else if cps >= 100.0 {
+            config.duty.min(70.0)
+        } else if cps >= 50.0 {
+            config.duty.min(98.0)
+        } else {
+            config.duty
+        };
+        let cycle_ms = (config.interval_secs * 1000.0).max(1.0) as u32;
+        let hold_ms =
+            ((config.interval_secs * duty.max(0.0) / 100.0 * 1000.0) as u32).min(cycle_ms);
 
-    let cycle_freq = calibrate_cycle_freq();
-    let cpu_cycles_start = thread_cycles();
-    let start_time = Instant::now();
+        Self {
+            is_keyboard,
+            down_flag,
+            up_flag,
+            batch_size,
+            has_position: config.use_sequence(),
+            use_smoothing: config.smoothing == 1 && cps < 50.0,
+            single_plan: ClickCyclePlan::single(hold_ms),
+            double_plan: ClickCyclePlan::double(hold_ms, cycle_ms, config.double_click_gap_ms),
+        }
+    }
+}
 
-    let mut rng = SmallRng::new();
-    let mut click_count: i64 = 0;
-    let is_keyboard = config.input_type == 1 && config.key_code > 0;
-    let (down_flag, up_flag) = if is_keyboard {
-        (0u32, 0u32)
+struct LoopState {
+    click_count: i64,
+    stop_reason: String,
+    sequence_index: usize,
+    sequence_clicks_remaining: usize,
+    target_x: i32,
+    target_y: i32,
+    next_batch_time: Instant,
+    moved_sequence_index: Option<usize>,
+}
+
+impl LoopState {
+    fn new(config: &ClickerConfig) -> Self {
+        let target = current_cycle_target(config, 0);
+        let (target_x, target_y) = if config.use_sequence() {
+            (target.x, target.y)
+        } else {
+            get_cursor_pos()
+        };
+        Self {
+            click_count: 0,
+            stop_reason: String::from("Stopped"),
+            sequence_index: 0,
+            sequence_clicks_remaining: target.clicks.max(1),
+            target_x,
+            target_y,
+            next_batch_time: Instant::now(),
+            moved_sequence_index: None,
+        }
+    }
+}
+
+fn check_abort(config: &ClickerConfig, start_time: Instant) -> Option<String> {
+    if let Some(reason) = should_stop_for_failsafe(config) {
+        return Some(reason);
+    }
+    if config.task_switcher_stop_enabled && process::is_task_switcher_active() {
+        return Some(String::from("Blocked by task switcher"));
+    }
+    if config.process_list_enabled
+        && process::check_process_list(config) == Some(super::ProcessListBehavior::Stop)
+    {
+        return Some(String::from("Blocked by process list"));
+    }
+    if config.time_limit > 0.0 && start_time.elapsed().as_secs_f64() >= config.time_limit {
+        return Some(format!("Time limit reached ({:.1}s)", config.time_limit));
+    }
+    None
+}
+
+fn handle_process_list_pause(config: &ClickerConfig, control: &RunControl) -> bool {
+    if !config.process_list_enabled {
+        return false;
+    }
+    if process::check_process_list(config) != Some(super::ProcessListBehavior::Pause) {
+        return false;
+    }
+    let state = control.app.state::<ClickerState>();
+    state.paused.store(true, Ordering::SeqCst);
+    emit_status(&control.app);
+    loop {
+        std::thread::sleep(Duration::from_millis(200));
+        if !state.running.load(Ordering::SeqCst)
+            || state.run_generation.load(Ordering::SeqCst) != control.expected_generation
+            || process::check_process_list(config).is_none()
+        {
+            break;
+        }
+    }
+    state.paused.store(false, Ordering::SeqCst);
+    emit_status(&control.app);
+    !state.running.load(Ordering::SeqCst)
+}
+
+fn update_target(
+    config: &ClickerConfig,
+    ctx: &ClickerContext,
+    rng: &mut SmallRng,
+    st: &mut LoopState,
+) {
+    if !ctx.has_position {
+        return;
+    }
+    let target = current_cycle_target(config, st.sequence_index);
+    if config.offset_chance > 0.0 && rng.next_f64() * 100.0 <= config.offset_chance {
+        let angle = rng.next_f64() * 2.0 * PI;
+        let radius = rng.next_f64().sqrt() * config.offset;
+        st.target_x = (target.x as f64 + radius * angle.cos()) as i32;
+        st.target_y = (target.y as f64 + radius * angle.sin()) as i32;
     } else {
-        get_button_flags(config.button)
-    };
-    let cps = if config.interval_secs > 0.0 {
-        1.0 / config.interval_secs
+        st.target_x = target.x;
+        st.target_y = target.y;
+    }
+    let should_move = st.moved_sequence_index != Some(st.sequence_index) || config.offset > 0.0;
+    if !should_move {
+        return;
+    }
+    if ctx.use_smoothing {
+        let (cur_x, cur_y) = get_cursor_pos();
+        if cur_x != st.target_x || cur_y != st.target_y {
+            let smooth_dur =
+                ((config.interval_secs * (0.2 + rng.next_f64() * 0.4)) * 1000.0) as u64;
+            smooth_move(
+                cur_x,
+                cur_y,
+                st.target_x,
+                st.target_y,
+                smooth_dur.clamp(1, 200),
+                rng,
+            );
+        }
     } else {
-        0.0
-    };
-    let batch_size = if !config.double_click_enabled && cps > 500.0 {
-        3usize
-    } else if !config.double_click_enabled && cps >= 50.0 {
-        2usize
-    } else {
-        1usize
-    };
-    let effective_duty = if cps > 500.0 {
-        config.duty.min(1.0)
-    } else if cps >= 200.0 {
-        config.duty.min(30.0)
-    } else if cps >= 100.0 {
-        config.duty.min(70.0)
-    } else if cps >= 50.0 {
-        config.duty.min(98.0)
-    } else {
-        config.duty
-    };
+        move_mouse(st.target_x, st.target_y);
+    }
+    st.moved_sequence_index = Some(st.sequence_index);
+}
 
-    let has_position = config.use_sequence();
-    let use_smoothing = config.smoothing == 1 && cps < 50.0;
-
-    let mut sequence_index = 0usize;
-    let mut cycle_target = current_cycle_target(&config, sequence_index);
-    let mut sequence_clicks_remaining = cycle_target.clicks.max(1);
-    let (mut target_x, mut target_y) = if has_position {
-        (cycle_target.x, cycle_target.y)
+fn run_batch(
+    config: &ClickerConfig,
+    ctx: &ClickerContext,
+    rng: &mut SmallRng,
+    st: &mut LoopState,
+    control: &RunControl,
+    should_abort: &dyn Fn() -> bool,
+) -> bool {
+    let requested = if config.use_sequence() {
+        st.sequence_clicks_remaining.min(ctx.batch_size)
     } else {
-        get_cursor_pos()
+        ctx.batch_size
     };
-    let mut next_batch_time = Instant::now();
-    let mut stop_reason = String::from("Stopped");
-    let mut moved_sequence_index: Option<usize> = None;
+    let remaining = if config.limit > 0 {
+        (config.limit as i64 - st.click_count).max(0) as usize
+    } else {
+        usize::MAX
+    };
+    let batch = plan_cycle_batch(requested, remaining, config.double_click_enabled);
+    if batch.cycles == 0 {
+        return false;
+    }
 
-    if has_position {
-        move_mouse(target_x, target_y);
-        moved_sequence_index = Some(sequence_index);
+    let base_dur = config.interval_secs * batch.cycles as f64;
+    let batch_dur = if config.variation > 0.0 {
+        rng.next_gaussian(base_dur, base_dur * config.variation / 100.0)
+    } else {
+        base_dur
+    };
+    st.next_batch_time += Duration::from_secs_f64(batch_dur.max(0.001));
+
+    if ctx.is_keyboard {
+        if batch.double_cycles > 0 {
+            send_key_presses(
+                config.key_code,
+                batch.double_cycles,
+                config.keyboard_uppercase,
+                ctx.double_plan,
+                control,
+                should_abort,
+            );
+        }
+        if batch.single_cycles > 0 {
+            send_key_presses(
+                config.key_code,
+                batch.single_cycles,
+                config.keyboard_uppercase,
+                ctx.single_plan,
+                control,
+                should_abort,
+            );
+        }
+    } else {
+        if batch.double_cycles > 0 {
+            send_clicks(
+                ctx.down_flag,
+                ctx.up_flag,
+                batch.double_cycles,
+                ctx.double_plan,
+                control,
+                should_abort,
+            );
+        }
+        if batch.single_cycles > 0 {
+            send_clicks(
+                ctx.down_flag,
+                ctx.up_flag,
+                batch.single_cycles,
+                ctx.single_plan,
+                control,
+                should_abort,
+            );
+        }
+    }
+
+    if !control.is_active() {
+        return false;
+    }
+
+    st.click_count += batch.physical_clicks as i64;
+    CLICK_COUNT.store(st.click_count, Ordering::Relaxed);
+
+    let sleep_dur = st.next_batch_time.saturating_duration_since(Instant::now());
+    if sleep_dur > Duration::ZERO {
+        sleep_interruptible(sleep_dur, control);
     }
 
     if config.use_sequence() {
+        st.sequence_clicks_remaining = st.sequence_clicks_remaining.saturating_sub(batch.cycles);
+        if st.sequence_clicks_remaining == 0 {
+            st.sequence_index = (st.sequence_index + 1) % config.sequence_points.len();
+            st.sequence_clicks_remaining = config.sequence_points[st.sequence_index].clicks.max(1);
+            let state = control.app.state::<ClickerState>();
+            state
+                .active_sequence_index
+                .store(st.sequence_index as i64, Ordering::SeqCst);
+            state.active_sequence_tick.fetch_add(1, Ordering::SeqCst);
+            emit_status(&control.app);
+        }
+    }
+
+    true
+}
+
+fn cpu_usage(start_cycles: u64, cycle_freq: f64, elapsed_secs: f64) -> f64 {
+    if elapsed_secs < 0.001 {
+        return -1.0;
+    }
+    let end = thread_cycles();
+    let delta = end.saturating_sub(start_cycles);
+    let cpu_secs = delta as f64 / cycle_freq;
+    let pct = (cpu_secs / elapsed_secs) * 100.0;
+    if pct < 0.001 {
+        -1.0
+    } else {
+        pct
+    }
+}
+
+pub fn start_clicker(config: ClickerConfig, control: RunControl) -> RunOutcome {
+    CLICK_COUNT.store(0, Ordering::SeqCst);
+    let _timer = TimerResolutionGuard::new();
+
+    let cycle_freq = calibrate_cycle_freq();
+    let cpu_start = thread_cycles();
+    let start_time = Instant::now();
+    let mut rng = SmallRng::new();
+    let ctx = ClickerContext::new(&config);
+    let mut st = LoopState::new(&config);
+
+    if ctx.has_position {
+        move_mouse(st.target_x, st.target_y);
+        st.moved_sequence_index = Some(0);
+    }
+    if config.use_sequence() {
         let state = control.app.state::<ClickerState>();
-        state
-            .active_sequence_index
-            .store(sequence_index as i64, Ordering::SeqCst);
+        state.active_sequence_index.store(0, Ordering::SeqCst);
         state.active_sequence_tick.fetch_add(1, Ordering::SeqCst);
         emit_status(&control.app);
     }
 
-    let should_abort = || {
-        should_stop_for_failsafe(&config).is_some()
-            || (config.time_limit > 0.0 && start_time.elapsed().as_secs_f64() >= config.time_limit)
-            || (config.task_switcher_stop_enabled && process::is_task_switcher_active())
-            || (config.process_list_enabled
-                && process::check_process_list(&config) == Some(super::ProcessListBehavior::Stop))
-    };
+    let should_abort = || check_abort(&config, start_time).is_some();
 
     while control.is_active() {
-        if should_abort() {
-            if let Some(reason) = should_stop_for_failsafe(&config) {
-                stop_reason = reason;
-            } else if config.task_switcher_stop_enabled && process::is_task_switcher_active() {
-                stop_reason = String::from("Blocked by task switcher");
-            } else if config.process_list_enabled
-                && process::check_process_list(&config) == Some(super::ProcessListBehavior::Stop)
-            {
-                stop_reason = String::from("Blocked by process list");
-            } else {
-                stop_reason = format!("Time limit reached ({:.1}s)", config.time_limit);
-            }
+        if let Some(reason) = check_abort(&config, start_time) {
+            st.stop_reason = reason;
+            break;
+        }
+        if handle_process_list_pause(&config, &control) {
+            st.stop_reason = String::from("Blocked by process list");
+            break;
+        }
+        if config.limit > 0 && st.click_count >= config.limit as i64 {
+            st.stop_reason = format!("Click limit reached ({})", config.limit);
             break;
         }
 
-        if config.process_list_enabled {
-            if let Some(behavior) = process::check_process_list(&config) {
-                if behavior == super::ProcessListBehavior::Pause {
-                    let state = control.app.state::<ClickerState>();
-                    state.paused.store(true, Ordering::SeqCst);
-                    emit_status(&control.app);
+        update_target(&config, &ctx, &mut rng, &mut st);
 
-                    loop {
-                        std::thread::sleep(Duration::from_millis(200));
-                        if !state.running.load(Ordering::SeqCst) {
-                            break;
-                        }
-                        if state.run_generation.load(Ordering::SeqCst)
-                            != control.expected_generation
-                        {
-                            break;
-                        }
-                        if process::check_process_list(&config).is_none() {
-                            break;
-                        }
-                    }
-
-                    state.paused.store(false, Ordering::SeqCst);
-                    emit_status(&control.app);
-
-                    if !state.running.load(Ordering::SeqCst) {
-                        stop_reason = String::from("Blocked by process list");
-                        break;
-                    }
-                }
+        if !run_batch(&config, &ctx, &mut rng, &mut st, &control, &should_abort) {
+            if control.is_active() {
+                st.stop_reason = format!("Click limit reached ({})", config.limit);
             }
-        }
-
-        if config.limit > 0 && click_count >= config.limit as i64 {
-            stop_reason = format!("Click limit reached ({})", config.limit);
             break;
-        }
-
-        cycle_target = current_cycle_target(&config, sequence_index);
-
-        if has_position {
-            let (base_x, base_y) = (cycle_target.x, cycle_target.y);
-            if config.offset_chance > 0.0 && rng.next_f64() * 100.0 <= config.offset_chance {
-                let angle = rng.next_f64() * 2.0 * PI;
-                let radius = rng.next_f64().sqrt() * config.offset;
-                target_x = (base_x as f64 + radius * angle.cos()) as i32;
-                target_y = (base_y as f64 + radius * angle.sin()) as i32;
-            } else {
-                target_x = base_x;
-                target_y = base_y;
-            }
-
-            let should_move_to_target =
-                moved_sequence_index != Some(sequence_index) || config.offset > 0.0;
-
-            if use_smoothing && should_move_to_target {
-                let (cur_x, cur_y) = get_cursor_pos();
-                if cur_x != target_x || cur_y != target_y {
-                    let smooth_dur =
-                        ((config.interval_secs * (0.2 + rng.next_f64() * 0.4)) * 1000.0) as u64;
-                    smooth_move(
-                        cur_x,
-                        cur_y,
-                        target_x,
-                        target_y,
-                        smooth_dur.clamp(1, 200),
-                        &mut rng,
-                    );
-                }
-                moved_sequence_index = Some(sequence_index);
-            } else if should_move_to_target {
-                move_mouse(target_x, target_y);
-                moved_sequence_index = Some(sequence_index);
-            }
-        }
-
-        let requested_cycles = if config.use_sequence() {
-            sequence_clicks_remaining.min(batch_size)
-        } else {
-            batch_size
-        };
-
-        let remaining_clicks = if config.limit > 0 {
-            (config.limit as i64 - click_count).max(0) as usize
-        } else {
-            usize::MAX
-        };
-
-        let cycle_batch = plan_cycle_batch(
-            requested_cycles,
-            remaining_clicks,
-            config.double_click_enabled,
-        );
-
-        if cycle_batch.cycles == 0 {
-            stop_reason = format!("Click limit reached ({})", config.limit);
-            break;
-        }
-
-        let variation_ratio = config.variation / 100.0;
-        let hold_factor = effective_duty.max(0.0) / 100.0 * 1000.0;
-        let actual_duration_base = config.interval_secs * cycle_batch.cycles as f64;
-        let batch_duration = if config.variation > 0.0 {
-            rng.next_gaussian(actual_duration_base, actual_duration_base * variation_ratio)
-        } else {
-            actual_duration_base
-        };
-        let cycle_ms = (config.interval_secs * 1000.0).max(1.0) as u32;
-        let hold_ms = ((config.interval_secs * hold_factor) as u32).min(cycle_ms);
-        next_batch_time += Duration::from_secs_f64(batch_duration.max(0.001));
-
-        let single_cycle_plan = ClickCyclePlan::single(hold_ms);
-        let double_cycle_plan =
-            ClickCyclePlan::double(hold_ms, cycle_ms, config.double_click_gap_ms);
-
-        if is_keyboard {
-            if cycle_batch.double_cycles > 0 {
-                send_key_presses(
-                    config.key_code,
-                    cycle_batch.double_cycles,
-                    config.keyboard_uppercase,
-                    double_cycle_plan,
-                    &control,
-                    &should_abort,
-                );
-            }
-            if cycle_batch.single_cycles > 0 {
-                send_key_presses(
-                    config.key_code,
-                    cycle_batch.single_cycles,
-                    config.keyboard_uppercase,
-                    single_cycle_plan,
-                    &control,
-                    &should_abort,
-                );
-            }
-        } else {
-            if cycle_batch.double_cycles > 0 {
-                send_clicks(
-                    down_flag,
-                    up_flag,
-                    cycle_batch.double_cycles,
-                    double_cycle_plan,
-                    &control,
-                    &should_abort,
-                );
-            }
-            if cycle_batch.single_cycles > 0 {
-                send_clicks(
-                    down_flag,
-                    up_flag,
-                    cycle_batch.single_cycles,
-                    single_cycle_plan,
-                    &control,
-                    &should_abort,
-                );
-            }
-        }
-
-        if !control.is_active() {
-            break;
-        }
-
-        click_count += cycle_batch.physical_clicks as i64;
-        CLICK_COUNT.store(click_count, Ordering::Relaxed);
-
-        let remaining = next_batch_time.saturating_duration_since(Instant::now());
-        if remaining > Duration::ZERO {
-            sleep_interruptible(remaining, &control);
-        }
-
-        if config.use_sequence() {
-            sequence_clicks_remaining =
-                sequence_clicks_remaining.saturating_sub(cycle_batch.cycles);
-            if sequence_clicks_remaining == 0 {
-                sequence_index = (sequence_index + 1) % config.sequence_points.len();
-                sequence_clicks_remaining = config.sequence_points[sequence_index].clicks.max(1);
-                let state = control.app.state::<ClickerState>();
-                state
-                    .active_sequence_index
-                    .store(sequence_index as i64, Ordering::SeqCst);
-                state.active_sequence_tick.fetch_add(1, Ordering::SeqCst);
-                emit_status(&control.app);
-            }
         }
     }
 
-    unsafe { NtSetTimerResolution(10000, 0, &mut current) };
-
-    let elapsed_secs = start_time.elapsed().as_secs_f64();
-    let cpu_cycles_end = thread_cycles();
-    let cycle_delta = cpu_cycles_end.saturating_sub(cpu_cycles_start);
-
-    let avg_cpu: f64 = if elapsed_secs < 0.001 {
-        -1.0
-    } else {
-        let cpu_seconds = cycle_delta as f64 / cycle_freq;
-        let pct = (cpu_seconds / elapsed_secs) * 100.0;
-        if pct < 0.001 {
-            -1.0
-        } else {
-            pct
-        }
-    };
+    let elapsed = start_time.elapsed().as_secs_f64();
+    let avg_cpu = cpu_usage(cpu_start, cycle_freq, elapsed);
 
     RunOutcome {
-        stop_reason,
-        click_count,
-        elapsed_secs,
+        stop_reason: st.stop_reason,
+        click_count: st.click_count,
+        elapsed_secs: elapsed,
         avg_cpu,
     }
 }
