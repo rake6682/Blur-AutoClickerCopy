@@ -13,13 +13,15 @@ use tauri::Manager;
 use windows_sys::Win32::Foundation::LRESULT;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, PeekMessageW, SetWindowsHookExW, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, MSG,
-    MSLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN,
-    WM_XBUTTONDOWN, WM_XBUTTONUP,
+    CallNextHookEx, MsgWaitForMultipleObjects, PeekMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
+    KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, QUEUE_STATUS_FLAGS, WH_KEYBOARD_LL, WH_MOUSE_LL,
+    WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT,
+    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
 const PM_REMOVE: u32 = 0x0001;
+const QS_ALLINPUT: QUEUE_STATUS_FLAGS = 1279u32;
+
 const POLL_INTERVAL: Duration = Duration::from_millis(12);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -246,16 +248,10 @@ pub fn start_hotkey_listener(app: AppHandle) {
         let mut last_check = Instant::now();
         let mut msg: MSG = std::mem::zeroed();
 
-        loop {
+        'outer: loop {
             while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
                 if msg.message == WM_QUIT {
-                    if !mouse_hook.is_null() {
-                        UnhookWindowsHookEx(mouse_hook);
-                    }
-                    if !kb_hook.is_null() {
-                        UnhookWindowsHookEx(kb_hook);
-                    }
-                    return;
+                    break 'outer;
                 }
             }
 
@@ -331,8 +327,27 @@ pub fn start_hotkey_listener(app: AppHandle) {
 
                 was_pressed = currently_pressed;
             } else {
-                std::thread::sleep(Duration::from_millis(1));
+                let remaining = POLL_INTERVAL
+                    .saturating_sub(last_check.elapsed())
+                    .as_millis()
+                    .min(u32::MAX as u128) as u32;
+                if remaining > 0 {
+                    MsgWaitForMultipleObjects(
+                        0,
+                        std::ptr::null(),
+                        0,
+                        remaining,
+                        QS_ALLINPUT,
+                    );
+                }
             }
+        }
+
+        if !mouse_hook.is_null() {
+            UnhookWindowsHookEx(mouse_hook);
+        }
+        if !kb_hook.is_null() {
+            UnhookWindowsHookEx(kb_hook);
         }
     });
 }

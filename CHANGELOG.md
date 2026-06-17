@@ -12,7 +12,8 @@
 - Zero-click runs are no longer recorded to stats or printed to console in dev mode.
 - Flipped around On/Off toggle to Off/On in the settings.
 - Slightly reduced ram usage.
-
+## Fixed
+- Click speed not being reached at high CPS (this time for real)
 
 # v3.7.2 - 15.06.2026 (d.m.y)
 ## Fixed
