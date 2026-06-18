@@ -334,6 +334,7 @@ function AnimatedTitle({
     clearScheduledWork();
 
     if (warning) {
+      lastShownStopReasonRef.current = null;
       queueFrame(() => {
         setTitleState({
           text: `⚠ ${warning}`,
@@ -345,6 +346,7 @@ function AnimatedTitle({
     }
 
     if (running && !paused && !stopReason) {
+      lastShownStopReasonRef.current = null;
       queueFrame(() => {
         setTitleState(DEFAULT_TITLE_STATE);
       });
@@ -352,6 +354,7 @@ function AnimatedTitle({
     }
 
     if (paused) {
+      lastShownStopReasonRef.current = null;
       queueFrame(() => {
         setTitleState({
           text: stopReason
@@ -365,6 +368,7 @@ function AnimatedTitle({
     }
 
     if (!stopReason) {
+      lastShownStopReasonRef.current = null;
       queueFrame(() => {
         setTitleState(DEFAULT_TITLE_STATE);
       });
@@ -378,40 +382,23 @@ function AnimatedTitle({
     lastShownStopReasonRef.current = stopReason;
 
     queueFrame(() => {
-      setTitleState((current) => ({ ...current, flipClass: "flip-out" }));
-      queueDelay(() => {
-        setTitleState({
-          text: translateStopReason(stopReason),
-          isReason: true,
-          flipClass: "",
-        });
-
-        queueFrame(() => {
-          setTitleState((current) => ({ ...current, flipClass: "flip-in" }));
-          queueDelay(() => {
-            setTitleState((current) => ({ ...current, flipClass: "" }));
-          }, 350);
-        });
-
-        queueDelay(() => {
-          queueFrame(() => {
-            setTitleState((current) => ({ ...current, flipClass: "flip-out" }));
-            queueDelay(() => {
-              setTitleState(DEFAULT_TITLE_STATE);
-              queueFrame(() => {
-                setTitleState((current) => ({
-                  ...current,
-                  flipClass: "flip-in",
-                }));
-                queueDelay(() => {
-                  setTitleState((current) => ({ ...current, flipClass: "" }));
-                }, 350);
-              });
-            }, 350);
-          });
-        }, 5000);
-      }, 400);
+      setTitleState({
+        text: translateStopReason(stopReason),
+        isReason: true,
+        flipClass: "squish-in",
+      });
     });
+    queueDelay(() => {
+      setTitleState((current) => ({ ...current, flipClass: "" }));
+    }, 250);
+
+    queueDelay(() => {
+      setTitleState(DEFAULT_TITLE_STATE);
+      setTitleState((current) => ({ ...current, flipClass: "squish-in" }));
+      queueDelay(() => {
+        setTitleState((current) => ({ ...current, flipClass: "" }));
+      }, 250);
+    }, 5000);
 
     return clearScheduledWork;
   }, [running, stopKey, warning, paused, stopReason]);
