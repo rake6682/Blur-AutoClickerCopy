@@ -12,6 +12,7 @@ use crate::ClickerStatusPayload;
 
 use crate::engine::mouse::current_cursor_position;
 use crate::engine::worker::current_status;
+use crate::engine::worker::emit_status;
 use crate::engine::worker::now_epoch_ms;
 use crate::engine::worker::start_clicker_inner;
 use crate::engine::worker::stop_clicker_inner;
@@ -51,7 +52,7 @@ pub fn start_clicker(app: AppHandle) -> Result<ClickerStatusPayload, String> {
 
 #[tauri::command]
 pub fn stop_clicker(app: AppHandle) -> Result<ClickerStatusPayload, String> {
-    stop_clicker_inner(&app, Some(String::from("Stopped from UI")))
+    stop_clicker_inner(&app, Some(String::from("Stopped for hotkey input")))
 }
 
 #[tauri::command]
@@ -153,6 +154,8 @@ pub fn set_hotkey_capture_active(app: AppHandle, active: bool) -> Result<(), Str
         state
             .suppress_hotkey_until_release
             .store(true, Ordering::SeqCst);
+        *state.warning.lock().unwrap() = None;
+        emit_status(&app);
     }
 
     Ok(())

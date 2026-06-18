@@ -311,6 +311,7 @@ function AnimatedTitle({
   const [titleState, setTitleState] = useState(DEFAULT_TITLE_STATE);
   const frameIdsRef = useRef<number[]>([]);
   const timeoutIdsRef = useRef<number[]>([]);
+  const lastShownStopReasonRef = useRef<string | null | undefined>(null);
 
   const clearScheduledWork = () => {
     frameIdsRef.current.forEach((id) => window.cancelAnimationFrame(id));
@@ -362,6 +363,19 @@ function AnimatedTitle({
       });
       return clearScheduledWork;
     }
+
+    if (!stopReason) {
+      queueFrame(() => {
+        setTitleState(DEFAULT_TITLE_STATE);
+      });
+      return clearScheduledWork;
+    }
+
+    if (stopReason === lastShownStopReasonRef.current) {
+      return clearScheduledWork;
+    }
+
+    lastShownStopReasonRef.current = stopReason;
 
     queueFrame(() => {
       setTitleState((current) => ({ ...current, flipClass: "flip-out" }));

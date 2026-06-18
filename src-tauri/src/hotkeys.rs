@@ -1,3 +1,4 @@
+use crate::engine::worker::emit_status;
 use crate::engine::worker::now_epoch_ms;
 use crate::engine::worker::start_clicker_inner;
 use crate::engine::worker::stop_clicker_inner;
@@ -298,6 +299,14 @@ pub fn start_hotkey_listener(app: AppHandle) {
                     .load(Ordering::SeqCst);
 
                 if hotkey_capture_active || sequence_pick_active || custom_stop_zone_pick_active {
+                    if currently_pressed && !was_pressed && hotkey_capture_active {
+                        let state = app.state::<ClickerState>();
+                        let mut warning = state.warning.lock().unwrap();
+                        if warning.is_none() {
+                            *warning = Some(String::from("Finish setting hotkey first"));
+                            emit_status(&app);
+                        }
+                    }
                     was_pressed = currently_pressed;
                     continue;
                 }
