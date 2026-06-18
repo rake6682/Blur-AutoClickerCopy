@@ -19,6 +19,7 @@
 - Position picking overlay appearing under main autoclicker window.
 - UI elements turning white when shift is pressed.
 - Fixed rare Flashing of toggles when setting is changed.
+- Fixed clicker not activating when main window is focused & improved responsiveness of hotkey detection in general.
 
 # v3.7.2 - 15.06.2026 (d.m.y)
 ## Fixed
