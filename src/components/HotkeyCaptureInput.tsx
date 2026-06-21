@@ -3,71 +3,19 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   captureHotkey,
   captureMouseHotkey,
+  defaultHotkeyLabels,
   formatHotkeyForDisplay,
   getKeyboardLayoutMap,
-  type HotkeyDisplayLabels,
+  getStateClass,
 } from "../hotkeys";
-
-const hotkeyLabels: HotkeyDisplayLabels = {
-  empty: "Click and press keys",
-  modifiers: {
-    ctrl: "Ctrl",
-    alt: "Alt",
-    shift: "Shift",
-    super: "Super",
-  },
-  keys: {
-    up: "Up",
-    down: "Down",
-    left: "Left",
-    right: "Right",
-    pageup: "Page Up",
-    pagedown: "Page Down",
-    backspace: "Backspace",
-    delete: "Delete",
-    insert: "Insert",
-    home: "Home",
-    end: "End",
-    enter: "Enter",
-    tab: "Tab",
-    space: "Space",
-    escape: "Esc",
-    esc: "Esc",
-    capslock: "Caps Lock",
-    numlock: "Num Lock",
-    scrolllock: "Scroll Lock",
-    printscreen: "Print Screen",
-    pause: "Pause",
-    menu: "Menu",
-    mouseleft: "Mouse Left",
-    mouseright: "Mouse Right",
-    mousemiddle: "Scroll Button",
-    mouse4: "Mouse Back",
-    mouse5: "Mouse Forward",
-    numpad0: "Num 0",
-    numpad1: "Num 1",
-    numpad2: "Num 2",
-    numpad3: "Num 3",
-    numpad4: "Num 4",
-    numpad5: "Num 5",
-    numpad6: "Num 6",
-    numpad7: "Num 7",
-    numpad8: "Num 8",
-    numpad9: "Num 9",
-    numpadadd: "Num +",
-    numpadsubtract: "Num -",
-    numpadmultiply: "Num *",
-    numpaddivide: "Num /",
-    numpaddecimal: "Num .",
-  },
-};
-
 
 interface Props {
   value: string;
   onChange: (next: string) => void;
   className: string;
   style?: React.CSSProperties;
+  conflicts?: string[];
+  reserved?: boolean;
 }
 
 export default function HotkeyCaptureInput({
@@ -75,34 +23,56 @@ export default function HotkeyCaptureInput({
   onChange,
   className,
   style,
+  conflicts,
+  reserved,
 }: Props) {
   const [listening, setListening] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLButtonElement | null>(null);
   const ignorePrimaryInputMouseUntilRef = useRef(0);
   const suppressedMouseButtonRef = useRef<number | null>(null);
   const suppressResetTimerRef = useRef<number | null>(null);
   const [layoutMap, setLayoutMap] =
     useState<Awaited<ReturnType<typeof getKeyboardLayoutMap>>>(null);
+  const onChangeRef = useRef(onChange);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
 
   useEffect(() => {
     let active = true;
 
     getKeyboardLayoutMap().then((map) => {
-      if (active) {
-        setLayoutMap(map);
-      }
+      if (active) setLayoutMap(map);
     });
+
+    const handleSuppressedMouseEvent = (event: MouseEvent) => {
+      if (suppressedMouseButtonRef.current !== event.button) return;
+
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+    };
+
+    window.addEventListener("mouseup", handleSuppressedMouseEvent, true);
+    window.addEventListener("click", handleSuppressedMouseEvent, true);
+    window.addEventListener("auxclick", handleSuppressedMouseEvent, true);
+    window.addEventListener("contextmenu", handleSuppressedMouseEvent, true);
 
     return () => {
       active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
       if (suppressResetTimerRef.current !== null) {
         window.clearTimeout(suppressResetTimerRef.current);
       }
+      window.removeEventListener("mouseup", handleSuppressedMouseEvent, true);
+      window.removeEventListener("click", handleSuppressedMouseEvent, true);
+      window.removeEventListener("auxclick", handleSuppressedMouseEvent, true);
+      window.removeEventListener(
+        "contextmenu",
+        handleSuppressedMouseEvent,
+        true,
+      );
     };
   }, []);
 
@@ -121,34 +91,11 @@ export default function HotkeyCaptureInput({
   }, [listening]);
 
   useEffect(() => {
-    const handleSuppressedMouseEvent = (event: MouseEvent) => {
-      if (suppressedMouseButtonRef.current !== event.button) return;
-
-      if (event.cancelable) {
-        event.preventDefault();
-      }
-      event.stopPropagation();
-    };
-
-    window.addEventListener("mouseup", handleSuppressedMouseEvent, true);
-    window.addEventListener("click", handleSuppressedMouseEvent, true);
-    window.addEventListener("auxclick", handleSuppressedMouseEvent, true);
-    window.addEventListener("contextmenu", handleSuppressedMouseEvent, true);
-
-    return () => {
-      window.removeEventListener("mouseup", handleSuppressedMouseEvent, true);
-      window.removeEventListener("click", handleSuppressedMouseEvent, true);
-      window.removeEventListener("auxclick", handleSuppressedMouseEvent, true);
-      window.removeEventListener("contextmenu", handleSuppressedMouseEvent, true);
-    };
-  }, []);
-
-  useEffect(() => {
     if (!listening) return;
 
     const finishCapture = (nextHotkey?: string) => {
       if (nextHotkey !== undefined) {
-        onChange(nextHotkey);
+        onChangeRef.current(nextHotkey);
       }
       setListening(false);
       inputRef.current?.blur();
@@ -215,49 +162,82 @@ export default function HotkeyCaptureInput({
       finishCapture(nextHotkey);
     };
 
+    const handleContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("mousedown", handleMouseDown, true);
+    window.addEventListener("contextmenu", handleContextMenu, true);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("mousedown", handleMouseDown, true);
+      window.removeEventListener("contextmenu", handleContextMenu, true);
     };
-  }, [listening, onChange]);
+  }, [listening]);
 
-  const displayText = useMemo(
-    () =>
-      listening
-        ? "Press keys..."
-        : formatHotkeyForDisplay(value, layoutMap, hotkeyLabels),
-    [layoutMap, listening, value],
-  );
+  const displayText = useMemo(() => {
+    if (listening) return "Press keys\u2026";
+
+    return value
+      ? formatHotkeyForDisplay(value, layoutMap, defaultHotkeyLabels)
+      : defaultHotkeyLabels.empty;
+  }, [layoutMap, listening, value]);
+
+  const hasConflict = conflicts !== undefined && conflicts.length > 0;
+  const stateClass = getStateClass(listening, hasConflict, !!value);
+
+  const tooltipText = listening
+    ? undefined
+    : hasConflict
+      ? `Already bound to: ${conflicts!.join(", ")}`
+      : reserved
+        ? "This hotkey may conflict with system shortcuts"
+        : value
+          ? "Hotkey works even when Blur is minimized"
+          : undefined;
 
   return (
-    <input
-      ref={inputRef}
-      type="text"
-      className={className}
-      value={displayText}
-      readOnly
-      onMouseDown={(event) => {
-        if (event.button === 0) {
+    <div className={`hk-wrapper ${stateClass}`}>
+      <button
+        ref={inputRef}
+        type="button"
+        className={`${className} hk-button`}
+        style={{
+          ...style,
+          paddingRight: value && !listening ? "1.25rem" : undefined,
+        }}
+        onClick={() => {
           ignorePrimaryInputMouseUntilRef.current = performance.now() + 150;
-        }
-      }}
-      onFocus={() => {
-        setListening(true);
-        invoke("stop_clicker").catch((err) => {
-          console.error("Failed to stop clicker:", err);
-        });
-      }}
-      onBlur={() => setListening(false)}
-      onContextMenu={(event) => {
-        if (listening) {
-          event.preventDefault();
-        }
-      }}
-      spellCheck={false}
-      style={style}
-    />
+          setListening(true);
+          invoke("stop_clicker").catch((err) => {
+            console.error("Failed to stop clicker:", err);
+          });
+        }}
+        onBlur={() => {
+          if (listening) {
+            setListening(false);
+          }
+        }}
+        title={tooltipText}
+      >
+        {displayText}
+      </button>
+      {value && !listening && (
+        <button
+          type="button"
+          className="hk-clear-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onChange("");
+          }}
+          title="Clear hotkey"
+        >
+          ×
+        </button>
+      )}
+    </div>
   );
 }

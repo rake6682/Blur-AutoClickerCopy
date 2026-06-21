@@ -9,6 +9,7 @@ import {
   SETTINGS_LIMITS,
 } from "../../settingsSchema";
 import { isAlphabeticKeyboardKey } from "../../keyboardKeyCase";
+import { conflictsWithAutoPressKey } from "../../hotkeys";
 import KeyCaptureInput from "../KeyCaptureInput";
 import { AdvDropdown } from "./advanced/shared";
 import "./SimplePanel.css";
@@ -152,6 +153,12 @@ function SimplePanel({ settings, update }: SimplePanelProps) {
     });
   };
 
+  const hasConflict =
+    settings.inputType === "keyboard" &&
+    conflictsWithAutoPressKey(settings.hotkey, settings.keyboardKey, keyboardKeyCaseIsUpper);
+  const hotkeyConflicts = hasConflict ? ["Auto-press key"] : [];
+  const autoPressKeyConflicts = hasConflict ? ["Hotkey"] : [];
+
   return (
     <div className="vcontainer simple-panel">
       <div className="hcontainer simple-row simple-row--top">
@@ -166,6 +173,7 @@ function SimplePanel({ settings, update }: SimplePanelProps) {
               style={{ width: "90px" }}
               value={settings.hotkey}
               onChange={(hotkey) => update({ hotkey })}
+              conflicts={hotkeyConflicts}
             />
           </div>
           <svg
@@ -230,6 +238,7 @@ function SimplePanel({ settings, update }: SimplePanelProps) {
                   update({ inputType: "mouse", mouseButton })
                 }
                 style={{width: "90px"}}
+                conflicts={autoPressKeyConflicts}
               />
               <button
                 type="button"

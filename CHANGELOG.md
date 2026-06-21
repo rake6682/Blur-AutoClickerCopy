@@ -4,6 +4,7 @@
 - Process whitelist/blacklist with per-application Stop/Pause behavior in the Zones panel.
 - Automatic stopping on Alt+Tab / Win+Tab (On/Off toggle in Settings → Behavior).
 - Autoclicker automatically stops when clicking into the hotkey field.
+- Hotkey input now has a button to clear the current hotkey.
 ## Changed
 - Stop reason now visible in simple mode (not just advanced/zones).
 - Pre-click abort checks now run before every individual click (failsafe, time limit, process list, task switcher).

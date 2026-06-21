@@ -36,7 +36,6 @@ pub struct HotkeyBinding {
 }
 
 pub fn register_hotkey_inner(app: &AppHandle, hotkey: String) -> Result<String, String> {
-    let binding = parse_hotkey_binding(&hotkey)?;
     let state = app.state::<ClickerState>();
     state
         .suppress_hotkey_until_ms
@@ -44,6 +43,13 @@ pub fn register_hotkey_inner(app: &AppHandle, hotkey: String) -> Result<String, 
     state
         .suppress_hotkey_until_release
         .store(true, Ordering::SeqCst);
+
+    if hotkey.is_empty() {
+        *state.registered_hotkey.lock().unwrap() = None;
+        return Ok(String::new());
+    }
+
+    let binding = parse_hotkey_binding(&hotkey)?;
     *state.registered_hotkey.lock().unwrap() = Some(binding.clone());
 
     Ok(format_hotkey_binding(&binding))

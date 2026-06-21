@@ -153,3 +153,76 @@ body {
 .settings-card {
   backdrop-filter: blur(var(--bg-panel-blur, 0px));
 }
+
+.hk-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.hk-button {
+  display: inline-block;
+  font: inherit;
+  padding: 0;
+  margin: 0;
+  text-align: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+  user-select: none;
+  background: none;
+  border: none;
+  outline: none;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hk-clear-btn {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: color 0.15s ease, background 0.15s ease;
+  opacity: 0.6;
+}
+
+.hk-clear-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-input);
+  opacity: 1;
+}
+
+.hk-idle-empty .hk-button {
+  color: var(--text-dim);
+}
+
+.hk-listening .hk-button {
+  color: var(--accent-green-strong);
+  animation: hk-pulse 1.8s ease-in-out infinite;
+}
+
+.hk-conflict .hk-button {
+  color: var(--accent-red);
+}
+
+@keyframes hk-pulse {
+  0%, 100% { text-shadow: 0 0 0 var(--accent-green-glow-1); }
+  50% { text-shadow: 0 0 6px var(--accent-green-glow-2), 0 0 12px var(--accent-green-glow-1); }
+}

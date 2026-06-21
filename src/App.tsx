@@ -256,7 +256,12 @@ export default function App() {
           }
 
           console.error("Failed to register hotkey:", err);
-          restoreLastValidHotkey();
+
+          if (!hotkey) {
+            lastValidHotkeyRef.current = "";
+          } else {
+            restoreLastValidHotkey();
+          }
         });
     }, 250);
   };

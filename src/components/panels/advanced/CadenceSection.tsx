@@ -2,6 +2,7 @@ import type { MouseButton, Settings } from "../../../store";
 
 import { MOUSE_BUTTON_OPTIONS } from "../../../settingsSchema";
 import { isAlphabeticKeyboardKey } from "../../../keyboardKeyCase";
+import { conflictsWithAutoPressKey } from "../../../hotkeys";
 import CadenceInput from "../../CadenceInput";
 import HotkeyCaptureInput from "../../HotkeyCaptureInput";
 import KeyCaptureInput from "../../KeyCaptureInput";
@@ -97,6 +98,12 @@ export default function CadenceSection({ settings, update, showInfo }: Props) {
     });
   };
 
+  const hasConflict =
+    settings.inputType === "keyboard" &&
+    conflictsWithAutoPressKey(settings.hotkey, settings.keyboardKey, keyboardKeyCaseIsUpper);
+  const hotkeyConflicts = hasConflict ? ["Auto-press key"] : [];
+  const autoPressKeyConflicts = hasConflict ? ["Hotkey"] : [];
+
   return (
     <div className="adv-sectioncontainer adv-basic-card">
       <div className="adv-card-header adv-cadence-header">
@@ -145,6 +152,7 @@ export default function CadenceSection({ settings, update, showInfo }: Props) {
                 outline: "none",
                 width: "150px",
               }}
+              conflicts={hotkeyConflicts}
             />
           </div>
           <div className="adv-seg-group">
@@ -234,6 +242,7 @@ export default function CadenceSection({ settings, update, showInfo }: Props) {
                   border: "none",
                   outline: "none",
                 }}
+                conflicts={autoPressKeyConflicts}
               />
               <button
                 type="button"
