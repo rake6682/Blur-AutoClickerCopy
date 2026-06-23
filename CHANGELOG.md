@@ -2,6 +2,8 @@
 ## Changed
 - Updated wording for extended click speed limit description.
 - Updated wording on task switcher -> Alt+Tab
+- Hotkey field now accepts modifier keys, ESC and Return.
+- Keyboard Clicker now accepts modifier keys, ESC and Return.
 ## Fixed
 - Fixed mouse cursor behaving erratically while application is running.
 
