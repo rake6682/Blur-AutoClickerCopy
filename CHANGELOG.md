@@ -1,3 +1,7 @@
+# v3.8.1 - 23.06.2026 (d.m.y)
+## Fixed
+- Fixed mouse cursor behaving erratically while application is running.
+
 # v3.8.0 - 21.06.2026 (d.m.y)
 ## New
 - SUPPORT FOR CUSTOM BACKGROUND IMAGES! (Settings → Appearance → Background Image).

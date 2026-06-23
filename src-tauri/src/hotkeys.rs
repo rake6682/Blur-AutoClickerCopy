@@ -14,10 +14,10 @@ use tauri::Manager;
 use windows_sys::Win32::Foundation::LRESULT;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, PeekMessageW, SetWindowsHookExW, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, MSG,
-    MSLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN,
-    WM_XBUTTONDOWN, WM_XBUTTONUP,
+    CallNextHookEx, PeekMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WaitMessage,
+    KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    WM_SYSKEYDOWN, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
 const PM_REMOVE: u32 = 0x0001;
@@ -251,6 +251,7 @@ pub fn start_hotkey_listener(app: AppHandle) {
             HOOKS_ACTIVE.store(true, Ordering::SeqCst);
         }
 
+        let state = app.state::<ClickerState>();
         let mut was_pressed = false;
         let mut last_check = Instant::now();
         let mut msg: MSG = std::mem::zeroed();
@@ -266,13 +267,12 @@ pub fn start_hotkey_listener(app: AppHandle) {
                 last_check = Instant::now();
 
                 let (binding, strict) = {
-                    let state = app.state::<ClickerState>();
                     let binding = state.registered_hotkey.lock().unwrap().clone();
                     let strict = state.settings.lock().unwrap().strict_hotkey_modifiers;
                     (binding, strict)
                 };
 
-                let running = app.state::<ClickerState>().running.load(Ordering::SeqCst);
+                let running = state.running.load(Ordering::SeqCst);
                 let currently_pressed = binding
                     .as_ref()
                     .map(|b| {
@@ -285,30 +285,16 @@ pub fn start_hotkey_listener(app: AppHandle) {
                     })
                     .unwrap_or(false);
 
-                let suppress_until = app
-                    .state::<ClickerState>()
-                    .suppress_hotkey_until_ms
-                    .load(Ordering::SeqCst);
-                let suppress_until_release = app
-                    .state::<ClickerState>()
-                    .suppress_hotkey_until_release
-                    .load(Ordering::SeqCst);
-                let hotkey_capture_active = app
-                    .state::<ClickerState>()
-                    .hotkey_capture_active
-                    .load(Ordering::SeqCst);
-                let sequence_pick_active = app
-                    .state::<ClickerState>()
-                    .sequence_pick_active
-                    .load(Ordering::SeqCst);
-                let custom_stop_zone_pick_active = app
-                    .state::<ClickerState>()
-                    .custom_stop_zone_pick_active
-                    .load(Ordering::SeqCst);
+                let suppress_until = state.suppress_hotkey_until_ms.load(Ordering::SeqCst);
+                let suppress_until_release =
+                    state.suppress_hotkey_until_release.load(Ordering::SeqCst);
+                let hotkey_capture_active = state.hotkey_capture_active.load(Ordering::SeqCst);
+                let sequence_pick_active = state.sequence_pick_active.load(Ordering::SeqCst);
+                let custom_stop_zone_pick_active =
+                    state.custom_stop_zone_pick_active.load(Ordering::SeqCst);
 
                 if hotkey_capture_active || sequence_pick_active || custom_stop_zone_pick_active {
                     if currently_pressed && !was_pressed && hotkey_capture_active {
-                        let state = app.state::<ClickerState>();
                         let needs_emit = {
                             let mut warning = state.warning.lock().unwrap();
                             if warning.is_none() {
@@ -331,7 +317,7 @@ pub fn start_hotkey_listener(app: AppHandle) {
                         was_pressed = true;
                         continue;
                     }
-                    app.state::<ClickerState>()
+                    state
                         .suppress_hotkey_until_release
                         .store(false, Ordering::SeqCst);
                     was_pressed = false;
@@ -350,9 +336,8 @@ pub fn start_hotkey_listener(app: AppHandle) {
                 }
 
                 was_pressed = currently_pressed;
-            } else {
-                PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
-                std::thread::sleep(Duration::from_millis(1));
+            } else if PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) == 0 {
+                WaitMessage();
             }
         }
 
