@@ -23,6 +23,7 @@ use image::ImageEncoder;
 
 const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 const DI_NORMAL: u32 = 0x0003;
+const PROCESS_DISPLAY_TITLE_MAX_CHARS: usize = 45;
 
 extern "system" {
     fn QueryFullProcessImageNameW(
@@ -257,6 +258,35 @@ fn build_pid_title_map() -> HashMap<u32, String> {
     state.map
 }
 
+fn truncate_title_for_display(title: &str) -> String {
+    match title.char_indices().nth(PROCESS_DISPLAY_TITLE_MAX_CHARS) {
+        Some((idx, _)) => title[..idx].to_string(),
+        None => title.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_title_preserves_ascii_behavior() {
+        let title = "a".repeat(PROCESS_DISPLAY_TITLE_MAX_CHARS + 1);
+        let truncated = truncate_title_for_display(&title);
+
+        assert_eq!(truncated, "a".repeat(PROCESS_DISPLAY_TITLE_MAX_CHARS));
+    }
+
+    #[test]
+    fn truncate_title_handles_multibyte_at_old_byte_boundary() {
+        let title = format!("{}Тест, привіт, дякую", "a".repeat(44));
+        let truncated = truncate_title_for_display(&title);
+
+        assert_eq!(truncated, format!("{}Т", "a".repeat(44)));
+        assert!(truncated.is_char_boundary(truncated.len()));
+    }
+}
+
 pub fn get_foreground_process_name() -> Option<String> {
     let hwnd = unsafe { GetForegroundWindow() };
     if hwnd.is_null() {
@@ -299,11 +329,7 @@ pub fn list_running_processes() -> Vec<ProcessInfo> {
         .into_iter()
         .filter_map(|(name, pid)| {
             let window_title = pid_title_map.get(&pid)?;
-            let display_name = if window_title.len() > 45 {
-                window_title[..45].to_string()
-            } else {
-                window_title.clone()
-            };
+            let display_name = truncate_title_for_display(window_title);
             let icon_base64 = get_icon_for_process(&name, pid);
             Some(ProcessInfo {
                 name,
