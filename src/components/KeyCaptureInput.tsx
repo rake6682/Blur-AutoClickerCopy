@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   captureHotkey,
+  captureModifierHotkey,
   formatHotkeyForDisplay,
   getKeyboardLayoutMap,
   getStateClass,
@@ -23,8 +24,6 @@ interface Props {
   onMouseButtonCapture?: (button: MouseButton) => void;
   conflicts?: string[];
 }
-
-const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta"]);
 
 function applyKeyboardKeyCase(
   value: string,
@@ -98,23 +97,26 @@ export default function KeyCaptureInput({
       event.preventDefault();
       event.stopPropagation();
 
-      if (event.key === "Escape") {
-        finishCapture();
+      const modifierHit = captureModifierHotkey(event);
+      if (modifierHit) {
+        finishCapture(modifierHit);
         return;
       }
 
-      if (
-        (event.key === "Backspace" || event.key === "Delete") &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.shiftKey &&
-        !event.metaKey
-      ) {
-        finishCapture("");
+      if (event.key === "Escape" || event.code === "Escape") {
+        finishCapture("escape");
         return;
       }
 
-      if (MODIFIER_KEYS.has(event.key)) return;
+      if (event.key === "Backspace") {
+        finishCapture("backspace");
+        return;
+      }
+
+      if (event.key === "Delete") {
+        finishCapture("delete");
+        return;
+      }
 
       const captured = captureHotkey({
         key: event.key,
