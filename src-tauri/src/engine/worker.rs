@@ -233,7 +233,9 @@ pub fn stop_clicker_inner(
         state.run_generation.fetch_add(1, Ordering::SeqCst);
     }
     if let Some(reason) = stop_reason {
-        *state.stop_reason.lock().unwrap_or_else(poisoned_inner) = Some(reason);
+        if was_running {
+            *state.stop_reason.lock().unwrap_or_else(poisoned_inner) = Some(reason);
+        }
     }
     *state.warning.lock().unwrap_or_else(poisoned_inner) = None;
     let payload = current_status(app);

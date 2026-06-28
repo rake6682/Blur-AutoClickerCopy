@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "BlurAutoClicker"
-version = "3.8.2"
+version = "3.8.3"
 dependencies = [
  "base64 0.22.1",
  "chrono",

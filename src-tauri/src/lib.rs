@@ -29,6 +29,10 @@ use tauri::{AppHandle, Listener, Manager};
 
 const STATUS_EVENT: &str = "clicker-status";
 
+fn is_rtss_running() -> bool {
+    crate::engine::process::is_process_running("RTSS.exe")
+}
+
 fn setup_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let msg = info.to_string();
@@ -216,6 +220,12 @@ fn create_clicker_state() -> ClickerState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     setup_panic_hook();
+
+    let rtss_detected = is_rtss_running();
+    if rtss_detected {
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--disable-gpu");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
@@ -225,9 +235,16 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_persisted_scope::init())
         .manage(create_clicker_state())
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
             setup_logging(&handle);
+            if rtss_detected {
+                log::warn!(
+                    "[RTSS] RivaTuner Statistics Server detected. \
+                     WebView2 GPU acceleration disabled to prevent crashes. \
+                     To fix permanently, exclude 'msedgewebview2.exe' in RTSS settings."
+                );
+            }
             if let Err(e) = crate::crash_handler::initialize_crashpad() {
                 log::warn!("[Crashpad] Failed to initialize: {e}");
             }

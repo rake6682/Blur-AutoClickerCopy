@@ -153,6 +153,7 @@ pub fn set_hotkey_capture_active(app: AppHandle, active: bool) -> AppResult<()> 
             .suppress_hotkey_until_release
             .store(true, Ordering::SeqCst);
         *state.warning.lock().unwrap_or_else(poisoned_inner) = None;
+        *state.stop_reason.lock().unwrap_or_else(poisoned_inner) = None;
         emit_status(&app);
     }
 
