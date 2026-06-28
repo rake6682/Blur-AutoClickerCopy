@@ -1,4 +1,6 @@
 # v3.8.3 - 28.06.2026 (d.m.y)
+## Changed
+- Changed max Process list title length to 35 characters to hopefully prevent ui clipping.
 ## Fixed
 - Fixed stop reason falsely showing up when switching from settings to another panel.
 - Fixed behaviour of the cps input field to be more gooder.

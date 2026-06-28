@@ -25,7 +25,7 @@ use image::ImageEncoder;
 
 const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 const DI_NORMAL: u32 = 0x0003;
-const PROCESS_DISPLAY_TITLE_MAX_CHARS: usize = 45;
+const PROCESS_DISPLAY_TITLE_MAX_CHARS: usize = 35;
 
 extern "system" {
     fn QueryFullProcessImageNameW(
