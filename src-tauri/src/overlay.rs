@@ -25,9 +25,38 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMNCRP_DISABLED};
 
 pub fn init_overlay(app: &AppHandle) -> AppResult<()> {
-    let window = app
-        .get_webview_window("overlay")
-        .ok_or_else(|| AppError::OverlayNotFound)?;
+    let window = match app.get_webview_window("overlay") {
+        Some(w) => w,
+        None => {
+            let overlay_data_dir = app
+                .path()
+                .app_local_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("EBWebView-overlay");
+
+            log::info!(
+                "[Overlay] Creating overlay window (user data: {})",
+                overlay_data_dir.display()
+            );
+
+            tauri::WebviewWindowBuilder::new(
+                app,
+                "overlay",
+                tauri::WebviewUrl::App("overlay.html".into()),
+            )
+            .title("Overlay")
+            .fullscreen(true)
+            .transparent(true)
+            .decorations(false)
+            .always_on_top(true)
+            .visible(false)
+            .skip_taskbar(true)
+            .focusable(false)
+            .shadow(false)
+            .data_directory(overlay_data_dir)
+            .build()?
+        }
+    };
 
     log::info!("[Overlay] Running one-time init...");
 
