@@ -5,6 +5,7 @@
 - Fixed stop reason falsely showing up when switching from settings to another panel.
 - Fixed behaviour of the cps input field to be more gooder.
 - Fixed title bar not having the background image blur effect applied.
+- Hopefully fixed application startup crash when RTSS is running.
 
 # v3.8.2 - 25.06.2026 (d.m.y)
 ## New

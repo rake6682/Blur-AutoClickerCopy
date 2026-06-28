@@ -378,6 +378,32 @@ pub fn is_task_switcher_active() -> bool {
     let tab_down = unsafe { (GetAsyncKeyState(VK_TAB as i32) as u16 & 0x8000) != 0 };
     alt_down && tab_down
 }
+
+pub fn is_process_running(name: &str) -> bool {
+    let target = normalize_process_name(name);
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return false;
+    }
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    let mut found = false;
+    if unsafe { Process32FirstW(snapshot, &mut entry) } != 0 {
+        loop {
+            let exe_name = wide_array_to_string(&entry.szExeFile);
+            if !exe_name.is_empty() && exe_name.to_lowercase() == target {
+                found = true;
+                break;
+            }
+            if unsafe { Process32NextW(snapshot, &mut entry) } == 0 {
+                break;
+            }
+        }
+    }
+    unsafe { CloseHandle(snapshot) };
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
