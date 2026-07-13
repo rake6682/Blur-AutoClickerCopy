@@ -84,6 +84,23 @@
         .overlay-prompt.active {
             opacity: 1;
         }
+        .status-indicator {
+            position: absolute;
+            left: 20px;
+            top: 20px;
+            z-index: 999999;
+            width: 16px;
+            height: 16px;
+            border-radius: 999px;
+            border: 2px solid rgba(255, 255, 255, 0.85);
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+            pointer-events: none;
+            background: #ff3b30;
+            transition: background-color 120ms ease;
+        }
+        .status-indicator.enabled {
+            background: #22c55e;
+        }
         .overlay-prompt span {
             display: block;
             color: rgba(255, 255, 255, 0.66);
@@ -120,6 +137,7 @@
             <span>Release to save.</span>
             <span>Esc to cancel.</span>
         </div>
+        <div id="status-indicator" class="status-indicator enabled"></div>
     </div>
 
     <script>
@@ -170,7 +188,18 @@
                 clearStopZonePreview();
             });
 
+            window.__TAURI__.event.listen('status-indicator', (event) => {
+                updateStatusIndicator(event.payload);
+            });
+
             console.log('[Overlay] Event listeners registered');
+        }
+
+        function updateStatusIndicator(payload) {
+            const indicator = document.getElementById('status-indicator');
+            if (!indicator) return;
+            const enabled = Boolean(payload && payload.enabled);
+            indicator.classList.toggle('enabled', enabled);
         }
 
         function renderZones(data) {

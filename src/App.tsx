@@ -108,6 +108,7 @@ const DEFAULT_STATUS: ClickerStatus = {
   warning: null,
   activeSequenceIndex: null,
   activeSequenceTick: 0,
+  masterHotkeyEnabled: true,
 };
 
 const DEFAULT_APP_INFO: AppInfo = {

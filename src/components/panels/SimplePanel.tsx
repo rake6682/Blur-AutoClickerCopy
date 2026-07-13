@@ -218,6 +218,16 @@ function SimplePanel({ settings, update }: SimplePanelProps) {
 
       <div className="hcontainer simple-row simple-row--bottom">
         <ControlBox className="simple-input-box simple-row-item">
+          <div className="simple-hotkey-field" style={{ width: "100%" }}>
+            <HotkeyCaptureInput
+              className="simple-hotkey-input"
+              style={{ width: "110px" }}
+              value={settings.masterHotkey}
+              onChange={(hotkey) => update({ masterHotkey: hotkey })}
+              conflicts={[]}
+            />
+          </div>
+          <div className="vertical-devider vertical-devider--stretch" />
           <AdvDropdown
             value={settings.inputType}
             options={inputTypeOptions}

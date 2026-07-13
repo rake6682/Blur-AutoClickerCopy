@@ -20,6 +20,7 @@ use crate::engine::worker::now_epoch_ms;
 use crate::engine::worker::start_clicker_inner;
 use crate::engine::worker::stop_clicker_inner;
 use crate::hotkeys::register_hotkey_inner;
+use crate::hotkeys::register_master_hotkey_inner;
 
 #[tauri::command]
 pub fn get_text_scale_factor() -> f64 {
@@ -71,6 +72,7 @@ pub fn update_settings(app: AppHandle, settings: ClickerSettings) -> AppResult<C
     let state = app.state::<ClickerState>();
     let was_initialized = state.settings_initialized.load(Ordering::SeqCst);
     let zone_changed: bool;
+    let master_hotkey_changed: bool;
     let sequence_changed: bool;
     {
         let mut old = state.settings.lock().unwrap_or_else(poisoned_inner);
@@ -91,6 +93,7 @@ pub fn update_settings(app: AppHandle, settings: ClickerSettings) -> AppResult<C
             || old.custom_stop_zone_height != settings.custom_stop_zone_height;
         sequence_changed = old.sequence_enabled != settings.sequence_enabled
             || old.sequence_points != settings.sequence_points;
+        master_hotkey_changed = old.master_hotkey != settings.master_hotkey;
         *old = settings.clone();
     }
     *state.warning.lock().unwrap_or_else(poisoned_inner) = None;
@@ -99,6 +102,10 @@ pub fn update_settings(app: AppHandle, settings: ClickerSettings) -> AppResult<C
         state.settings_initialized.store(true, Ordering::SeqCst);
         log::info!("[Settings] First update_settings — initialized, skipping overlay");
         return Ok(settings);
+    }
+
+    if master_hotkey_changed {
+        register_master_hotkey_inner(&app, settings.master_hotkey.clone())?;
     }
 
     if zone_changed {
@@ -137,6 +144,11 @@ pub fn get_status(app: AppHandle) -> AppResult<ClickerStatusPayload> {
 #[tauri::command]
 pub fn register_hotkey(app: AppHandle, hotkey: String) -> AppResult<String> {
     register_hotkey_inner(&app, hotkey)
+}
+
+#[tauri::command]
+pub fn register_master_hotkey(app: AppHandle, hotkey: String) -> AppResult<String> {
+    register_master_hotkey_inner(&app, hotkey)
 }
 
 #[tauri::command]

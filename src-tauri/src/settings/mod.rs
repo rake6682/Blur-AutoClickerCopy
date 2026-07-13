@@ -25,6 +25,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_master_hotkey() -> String {
+    "ctrl+alt+o".to_string()
+}
+
 use crate::engine::ProcessListEntry;
 
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
@@ -85,6 +89,8 @@ pub struct ClickerSettings {
     #[serde(default = "default_true")]
     pub task_switcher_stop_enabled: bool,
     pub hotkey: String,
+    #[serde(default = "default_master_hotkey")]
+    pub master_hotkey: String,
     pub rate_input_mode: String,
     pub duration_hours: u32,
     pub duration_minutes: u32,
@@ -161,6 +167,7 @@ impl Default for ClickerSettings {
             // settings-only defaults
             task_switcher_stop_enabled: true,
             hotkey: "ctrl+y".to_string(),
+            master_hotkey: default_master_hotkey(),
             rate_input_mode: "rate".to_string(),
             duration_hours: 0,
             duration_minutes: 0,

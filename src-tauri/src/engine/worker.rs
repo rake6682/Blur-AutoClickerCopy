@@ -420,6 +420,7 @@ pub fn current_status(app: &AppHandle) -> ClickerStatusPayload {
             None
         },
         active_sequence_tick,
+        master_hotkey_enabled: state.master_hotkey_enabled.load(Ordering::SeqCst),
     }
 }
 

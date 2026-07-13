@@ -246,6 +246,10 @@ const SETTINGS_ONLY_FIELDS = {
     default: "ctrl+y",
     ui: { section: "core", control: "hotkey" },
   },
+  masterHotkey: {
+    default: "ctrl+alt+o",
+    ui: { section: "core", control: "hotkey" },
+  },
   rateInputMode: {
     default: "rate" as RateInputMode,
     ui: { section: "core", control: "select" },

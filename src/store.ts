@@ -37,6 +37,7 @@ export interface ClickerStatus {
   warning: string | null;
   activeSequenceIndex: number | null;
   activeSequenceTick: number;
+  masterHotkeyEnabled: boolean;
 }
 
 export interface AppInfo {

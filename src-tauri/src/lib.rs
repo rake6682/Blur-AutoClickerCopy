@@ -20,6 +20,7 @@ pub use crate::app_state::ClickerStatusPayload;
 use crate::engine::worker::emit_status;
 use crate::error::poisoned_inner;
 use crate::hotkeys::register_hotkey_inner;
+use crate::hotkeys::register_master_hotkey_inner;
 use crate::hotkeys::start_hotkey_listener;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
 use std::sync::{Arc, Mutex};
@@ -161,19 +162,19 @@ fn spawn_overlay_auto_hide(app: &AppHandle) {
 }
 
 fn setup_hotkeys(app: &AppHandle) -> Result<(), std::io::Error> {
-    let initial_hotkey = {
+    let (initial_hotkey, initial_master_hotkey) = {
         let state = app.state::<ClickerState>();
-        let hotkey = state
-            .settings
-            .lock()
-            .unwrap_or_else(poisoned_inner)
-            .hotkey
-            .clone();
-        hotkey
+        let settings = state.settings.lock().unwrap_or_else(poisoned_inner);
+        (
+            settings.hotkey.clone(),
+            settings.master_hotkey.clone(),
+        )
     };
 
     start_hotkey_listener(app.clone());
-    register_hotkey_inner(app, initial_hotkey).map_err(std::io::Error::other)?;
+    register_hotkey_inner(app.clone(), initial_hotkey).map_err(std::io::Error::other)?;
+    register_master_hotkey_inner(app.clone(), initial_master_hotkey)
+        .map_err(std::io::Error::other)?;
     emit_status(app);
     Ok(())
 }
@@ -206,11 +207,13 @@ fn create_clicker_state() -> ClickerState {
         active_sequence_index: AtomicI64::new(-1),
         active_sequence_tick: AtomicU64::new(0),
         registered_hotkey: Mutex::new(None),
+        registered_master_hotkey: Mutex::new(None),
         suppress_hotkey_until_ms: AtomicU64::new(0),
         suppress_hotkey_until_release: AtomicBool::new(false),
         hotkey_capture_active: AtomicBool::new(false),
         sequence_pick_active: AtomicBool::new(false),
         custom_stop_zone_pick_active: AtomicBool::new(false),
+        master_hotkey_enabled: AtomicBool::new(true),
         settings_initialized: AtomicBool::new(false),
         paused: Arc::new(AtomicBool::new(false)),
         warning: Mutex::new(None),
@@ -267,6 +270,7 @@ pub fn run() {
             ui_commands::reset_settings,
             ui_commands::get_status,
             ui_commands::register_hotkey,
+            ui_commands::register_master_hotkey,
             ui_commands::set_hotkey_capture_active,
             ui_commands::pick_position,
             ui_commands::start_sequence_point_pick,

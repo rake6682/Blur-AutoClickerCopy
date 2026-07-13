@@ -69,7 +69,26 @@ pub fn init_overlay(app: &AppHandle) -> AppResult<()> {
         let _ = sync_overlay_bounds(&window)?;
     }
 
-    log::info!("[Overlay] Init complete — window configured but hidden");
+    let _ = show_status_indicator(app);
+    let _ = show_overlay_window(&window);
+
+    log::info!("[Overlay] Init complete — window configured and visible");
+    Ok(())
+}
+
+pub fn show_status_indicator(app: &AppHandle) -> AppResult<()> {
+    let window = app
+        .get_webview_window("overlay")
+        .ok_or_else(|| AppError::OverlayNotFound)?;
+    let state = app.state::<ClickerState>();
+    let enabled = state.master_hotkey_enabled.load(Ordering::SeqCst);
+
+    let _ = window.emit(
+        "status-indicator",
+        serde_json::json!({
+            "enabled": enabled,
+        }),
+    );
     Ok(())
 }
 

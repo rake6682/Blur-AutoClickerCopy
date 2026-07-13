@@ -64,6 +64,32 @@ pub fn register_hotkey_inner(app: &AppHandle, hotkey: String) -> AppResult<Strin
     Ok(format_hotkey_binding(&binding))
 }
 
+pub fn register_master_hotkey_inner(app: &AppHandle, hotkey: String) -> AppResult<String> {
+    let state = app.state::<ClickerState>();
+    state
+        .suppress_hotkey_until_ms
+        .store(now_epoch_ms().saturating_add(250), Ordering::SeqCst);
+    state
+        .suppress_hotkey_until_release
+        .store(true, Ordering::SeqCst);
+
+    if hotkey.is_empty() {
+        *state
+            .registered_master_hotkey
+            .lock()
+            .unwrap_or_else(poisoned_inner) = None;
+        return Ok(String::new());
+    }
+
+    let binding = parse_hotkey_binding(&hotkey)?;
+    *state
+        .registered_master_hotkey
+        .lock()
+        .unwrap_or_else(poisoned_inner) = Some(binding.clone());
+
+    Ok(format_hotkey_binding(&binding))
+}
+
 pub fn normalize_hotkey(value: &str) -> String {
     value.trim().to_ascii_lowercase()
 }
@@ -295,6 +321,7 @@ pub fn start_hotkey_listener(app: AppHandle) {
 
         let state = app.state::<ClickerState>();
         let mut was_pressed = false;
+        let mut master_was_pressed = false;
         let mut last_check = Instant::now();
         let mut msg: MSG = std::mem::zeroed();
 
@@ -308,9 +335,14 @@ pub fn start_hotkey_listener(app: AppHandle) {
             if last_check.elapsed() >= POLL_INTERVAL {
                 last_check = Instant::now();
 
-                let (binding, strict) = {
+                let (binding, master_binding, strict) = {
                     let binding = state
                         .registered_hotkey
+                        .lock()
+                        .unwrap_or_else(poisoned_inner)
+                        .clone();
+                    let master_binding = state
+                        .registered_master_hotkey
                         .lock()
                         .unwrap_or_else(poisoned_inner)
                         .clone();
@@ -319,11 +351,24 @@ pub fn start_hotkey_listener(app: AppHandle) {
                         .lock()
                         .unwrap_or_else(poisoned_inner)
                         .strict_hotkey_modifiers;
-                    (binding, strict)
+                    (binding, master_binding, strict)
                 };
 
                 let running = state.running.load(Ordering::SeqCst);
+                let automation_enabled = state.master_hotkey_enabled.load(Ordering::SeqCst);
                 let currently_pressed = binding
+                    .as_ref()
+                    .map(|b| {
+                        if HOOKS_ACTIVE.load(Ordering::Relaxed) {
+                            let physical = is_hotkey_binding_pressed_physical(b, strict);
+                            physical || (!running && is_hotkey_binding_pressed(b, strict))
+                        } else {
+                            is_hotkey_binding_pressed(b, strict)
+                        }
+                    })
+                    .unwrap_or(false)
+                    && automation_enabled;
+                let master_currently_pressed = master_binding
                     .as_ref()
                     .map(|b| {
                         if HOOKS_ACTIVE.load(Ordering::Relaxed) {
@@ -363,6 +408,10 @@ pub fn start_hotkey_listener(app: AppHandle) {
                 }
 
                 if suppress_until_release {
+                    if master_currently_pressed {
+                        master_was_pressed = true;
+                        continue;
+                    }
                     if currently_pressed {
                         was_pressed = true;
                         continue;
@@ -376,7 +425,20 @@ pub fn start_hotkey_listener(app: AppHandle) {
 
                 if now_epoch_ms() < suppress_until {
                     was_pressed = currently_pressed;
+                    master_was_pressed = master_currently_pressed;
                     continue;
+                }
+
+                if master_currently_pressed && !master_was_pressed {
+                    let next_enabled = !state.master_hotkey_enabled.load(Ordering::SeqCst);
+                    state.master_hotkey_enabled.store(next_enabled, Ordering::SeqCst);
+                    if !next_enabled && state.running.load(Ordering::SeqCst) {
+                        let _ = stop_clicker_inner(&app, Some(String::from("Stopped by master hotkey")));
+                    }
+                    emit_status(&app);
+                    let _ = crate::overlay::show_status_indicator(&app);
+                } else if !master_currently_pressed && master_was_pressed {
+                    state.suppress_hotkey_until_release.store(true, Ordering::SeqCst);
                 }
 
                 if currently_pressed && !was_pressed {
@@ -386,6 +448,7 @@ pub fn start_hotkey_listener(app: AppHandle) {
                 }
 
                 was_pressed = currently_pressed;
+                master_was_pressed = master_currently_pressed;
             } else if PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) == 0 {
                 WaitMessage();
             }
@@ -413,6 +476,11 @@ fn is_hotkey_binding_pressed_physical(binding: &HotkeyBinding, strict: bool) -> 
 }
 
 pub fn handle_hotkey_pressed(app: &AppHandle) {
+    let state = app.state::<ClickerState>();
+    if !state.master_hotkey_enabled.load(Ordering::SeqCst) {
+        return;
+    }
+
     let mode = {
         let state = app.state::<ClickerState>();
         let mode = state
@@ -436,6 +504,11 @@ pub fn handle_hotkey_pressed(app: &AppHandle) {
 }
 
 pub fn handle_hotkey_released(app: &AppHandle) {
+    let state = app.state::<ClickerState>();
+    if !state.master_hotkey_enabled.load(Ordering::SeqCst) {
+        return;
+    }
+
     let mode = {
         let state = app.state::<ClickerState>();
         let mode = state
