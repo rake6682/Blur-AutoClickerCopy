@@ -3,6 +3,12 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    watch: {
+      // Ignore Rust build artifacts to avoid EBUSY/file lock errors on Windows
+      ignored: ["**/src-tauri/target/**"]
+    }
+  },
   build: {
     rollupOptions: {
       input: {
