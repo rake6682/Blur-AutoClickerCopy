@@ -165,16 +165,12 @@ fn setup_hotkeys(app: &AppHandle) -> Result<(), std::io::Error> {
     let (initial_hotkey, initial_master_hotkey) = {
         let state = app.state::<ClickerState>();
         let settings = state.settings.lock().unwrap_or_else(poisoned_inner);
-        (
-            settings.hotkey.clone(),
-            settings.master_hotkey.clone(),
-        )
+        (settings.hotkey.clone(), settings.master_hotkey.clone())
     };
 
     start_hotkey_listener(app.clone());
-    register_hotkey_inner(app.clone(), initial_hotkey).map_err(std::io::Error::other)?;
-    register_master_hotkey_inner(app.clone(), initial_master_hotkey)
-        .map_err(std::io::Error::other)?;
+    register_hotkey_inner(app, initial_hotkey).map_err(std::io::Error::other)?;
+    register_master_hotkey_inner(app, initial_master_hotkey).map_err(std::io::Error::other)?;
     emit_status(app);
     Ok(())
 }

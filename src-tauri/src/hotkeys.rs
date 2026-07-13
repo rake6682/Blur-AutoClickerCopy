@@ -431,14 +431,21 @@ pub fn start_hotkey_listener(app: AppHandle) {
 
                 if master_currently_pressed && !master_was_pressed {
                     let next_enabled = !state.master_hotkey_enabled.load(Ordering::SeqCst);
-                    state.master_hotkey_enabled.store(next_enabled, Ordering::SeqCst);
+                    state
+                        .master_hotkey_enabled
+                        .store(next_enabled, Ordering::SeqCst);
                     if !next_enabled && state.running.load(Ordering::SeqCst) {
-                        let _ = stop_clicker_inner(&app, Some(String::from("Stopped by master hotkey")));
+                        let _ = stop_clicker_inner(
+                            &app,
+                            Some(String::from("Stopped by master hotkey")),
+                        );
                     }
                     emit_status(&app);
                     let _ = crate::overlay::show_status_indicator(&app);
                 } else if !master_currently_pressed && master_was_pressed {
-                    state.suppress_hotkey_until_release.store(true, Ordering::SeqCst);
+                    state
+                        .suppress_hotkey_until_release
+                        .store(true, Ordering::SeqCst);
                 }
 
                 if currently_pressed && !was_pressed {
